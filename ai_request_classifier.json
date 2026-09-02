@@ -1,0 +1,145 @@
+{
+  "name": "AI Request Classifier Demo",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "classify-request",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-1",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -700,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const text = $json.body?.text ?? $json.text ?? '';\nif (!text || typeof text !== 'string') {\n  throw new Error('Expected JSON body: {\"text\":\"...\"}');\n}\nreturn [{ json: { text: text.trim() } }];"
+      },
+      "id": "normalize-1",
+      "name": "Normalize Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -460,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.OPENAI_API_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ model: $env.OPENAI_MODEL, instructions: \"Ты классифицируешь входящие обращения. Верни только JSON с полями: category, priority, summary, next_action, confidence, needs_human_review. Категории: delivery_issue, complaint, sales_lead, payment, technical_issue, other. Приоритеты: low, medium, high, critical. Не добавляй факты.\", input: $json.text }) }}",
+        "options": {}
+      },
+      "id": "openai-1",
+      "name": "OpenAI Responses API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -180,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const outputText =\n  $json.output_text ??\n  $json.output?.flatMap(x => x.content ?? [])\n    ?.find(x => x.type === 'output_text')?.text;\n\nif (!outputText) {\n  throw new Error('No text output returned by model');\n}\n\nconst cleaned = outputText\n  .replace(/^```json\\s*/i, '')\n  .replace(/\\s*```$/, '')\n  .trim();\n\nlet parsed;\ntry {\n  parsed = JSON.parse(cleaned);\n} catch (e) {\n  throw new Error(`Invalid JSON from model: ${cleaned}`);\n}\n\nconst categories = new Set([\n  'delivery_issue',\n  'complaint',\n  'sales_lead',\n  'payment',\n  'technical_issue',\n  'other'\n]);\nconst priorities = new Set(['low', 'medium', 'high', 'critical']);\n\nif (!categories.has(parsed.category)) parsed.category = 'other';\nif (!priorities.has(parsed.priority)) parsed.priority = 'medium';\n\nparsed.confidence = Number(parsed.confidence ?? 0);\nif (!Number.isFinite(parsed.confidence)) parsed.confidence = 0;\n\nparsed.needs_human_review =\n  parsed.needs_human_review === true || parsed.confidence < 0.70;\n\nparsed.route = ['high', 'critical'].includes(parsed.priority)\n  ? 'urgent_queue'\n  : 'standard_queue';\n\nreturn [{ json: parsed }];"
+      },
+      "id": "validate-1",
+      "name": "Validate + Route",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        100,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{$json}}",
+        "options": {}
+      },
+      "id": "response-1",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        360,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Input": {
+      "main": [
+        [
+          {
+            "node": "OpenAI Responses API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Responses API": {
+      "main": [
+        [
+          {
+            "node": "Validate + Route",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate + Route": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": []
+}
