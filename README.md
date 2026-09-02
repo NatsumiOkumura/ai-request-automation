@@ -99,7 +99,7 @@ python run_demo.py --mock
 
 ## n8n
 
-В `n8n/ai_request_classifier.json` лежит заготовка workflow:
+В `ai_request_classifier.json` лежит заготовка workflow:
 
 **Webhook → Normalize Input → OpenAI Responses API → Validate + Route → Respond to Webhook**
 
@@ -136,10 +136,8 @@ demo_results.json
 requirements.txt
 .env.example
 .gitignore
-n8n/
-└── ai_request_classifier.json
-tests/
-└── test_validation.py
+ai_request_classifier.json
+test_validation.py
 ```
 
 ## Идеи развития
